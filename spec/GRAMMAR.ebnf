@@ -1,0 +1,204 @@
+(* ==========================================================================
+   Kato Language — Formal EBNF Grammar
+   Version: 1.0 (draft)
+   Reference: spec/DESIGN.md
+   ========================================================================== *)
+
+(* ---------- Top-Level Document ------------------------------------------ *)
+
+document        = { directive | doc_comment | comment | statement } ;
+
+statement       = key_value
+                | named_block
+                | named_array
+                | array_op ;
+
+(* ---------- Directives -------------------------------------------------- *)
+
+directive       = "@" directive_name [ directive_body ] NEWLINE ;
+
+directive_name  = "version" | "schema" | "schemaVersion"
+                | "profile" | "use" | "include" | "agent" ;
+
+directive_body  = version_body
+                | schema_body
+                | profile_body
+                | use_body
+                | include_body
+                | agent_body ;
+
+version_body    = integer ;
+
+schema_body     = quoted_string ;
+
+profile_body    = identifier object ;
+
+use_body        = dotted_key "as" identifier ;
+
+include_body    = quoted_string [ "as" identifier ] ;
+
+agent_body      = object ;
+
+(* ---------- Key-Value Pairs --------------------------------------------- *)
+
+key_value       = key ":" value TERMINATOR ;
+
+key             = identifier | dotted_key | quoted_string ;
+
+dotted_key      = identifier { "." identifier } ;
+
+(* ---------- Named Blocks & Arrays --------------------------------------- *)
+
+named_block     = key object ;
+
+named_array     = key array ;
+
+(* ---------- Array Operations -------------------------------------------- *)
+
+array_op        = key ( "+=" | "-=" ) array TERMINATOR ;
+
+(* ---------- Objects ----------------------------------------------------- *)
+
+object          = "{" object_members "}" ;
+
+object_members  = { doc_comment | comment | statement } ;
+
+(* ---------- Arrays ------------------------------------------------------ *)
+
+array           = "[" array_elements "]" ;
+
+array_elements  = [ value { separator value } [ separator ] ] ;
+
+separator       = "," | NEWLINE ;
+
+(* ---------- Values ------------------------------------------------------ *)
+
+value           = unit_literal
+                | number
+                | boolean
+                | null_literal
+                | on_off
+                | quoted_string
+                | env_ref
+                | general_ref
+                | array
+                | object
+                | bare_word ;
+
+(* ---------- Scalars ----------------------------------------------------- *)
+
+(* Booleans *)
+boolean         = "true" | "false" ;
+
+(* Null *)
+null_literal    = "null" ;
+
+(* On/Off (aliases for true/false) *)
+on_off          = "on" | "off" ;
+
+(* Reserved literals — these are NOT bare words *)
+reserved        = "true" | "false" | "null" | "on" | "off" ;
+
+(* Bare words: unquoted strings that are not reserved literals *)
+bare_word       = ( ALPHA | "_" ) { ALPHA | DIGIT | "_" | "-" }
+                  (* only valid if the resulting text ∉ reserved *) ;
+
+(* ---------- Numbers ----------------------------------------------------- *)
+
+number          = float | integer ;
+
+integer         = [ "-" | "+" ] digit_seq
+                | hex_integer ;
+
+hex_integer     = "0x" HEX_DIGIT { HEX_DIGIT | "_" } ;
+
+float           = [ "-" | "+" ] digit_seq "." digit_seq [ exponent ]
+                | [ "-" | "+" ] digit_seq exponent ;
+
+exponent        = ( "e" | "E" ) [ "+" | "-" ] digit_seq ;
+
+digit_seq       = DIGIT { DIGIT | "_" } ;
+
+(* ---------- Unit Literals ----------------------------------------------- *)
+
+(* A unit literal is a number immediately followed by a unit suffix.
+   No whitespace between the numeric part and the suffix.
+   Examples: 30s, 512MiB, 100/min *)
+
+unit_literal    = number unit_suffix ;
+
+unit_suffix     = "/" unit_name
+                | unit_name ;
+
+unit_name       = ALPHA { ALPHA | DIGIT } ;
+
+(* ---------- Strings ----------------------------------------------------- *)
+
+quoted_string   = '"' { string_char } '"' ;
+
+string_char     = UNESCAPED
+                | "\\" escape_seq ;
+
+escape_seq      = '"' | "\\" | "/" | "b" | "f" | "n" | "r" | "t"
+                | "u" HEX_DIGIT HEX_DIGIT HEX_DIGIT HEX_DIGIT ;
+
+(* UNESCAPED is any Unicode character except `"`, `\`, and control chars U+0000–U+001F *)
+
+(* ---------- Environment & References ------------------------------------ *)
+
+env_ref         = "env" "(" quoted_string [ "," env_options ] ")" ;
+
+env_options     = env_option { "," env_option } ;
+
+env_option      = identifier ":" value ;
+
+general_ref     = "ref" "(" quoted_string ")" ;
+
+(* ---------- Schema / Type Definitions ----------------------------------- *)
+
+(* Type definitions appear at top-level in schema files *)
+
+statement       = (* ...extended with: *) type_def ;
+
+type_def        = "type" identifier "{" { type_field } "}" ;
+
+type_field      = identifier [ "?" ] ":" type_expr [ type_constraint ] [ "=" value ] TERMINATOR ;
+
+type_expr       = type_name [ "<" type_expr ">" ]
+                | type_name ;
+
+type_name       = identifier ;
+
+type_constraint = identifier "(" value { "," value } ")" ;
+
+(* ---------- Comments ---------------------------------------------------- *)
+
+comment         = "#" { ANY_CHAR } NEWLINE ;
+
+doc_comment     = "///" { ANY_CHAR } NEWLINE ;
+
+(* ---------- Identifiers ------------------------------------------------- *)
+
+identifier      = ( ALPHA | "_" ) { ALPHA | DIGIT | "_" | "-" } ;
+
+(* ---------- Terminals --------------------------------------------------- *)
+
+TERMINATOR      = NEWLINE | "," | (* end of input *) ;
+
+NEWLINE         = ? U+000A (LF) or U+000D U+000A (CRLF) ? ;
+
+ALPHA           = ? Unicode letters [a-zA-Z] ? ;
+
+DIGIT           = ? [0-9] ? ;
+
+HEX_DIGIT       = ? [0-9a-fA-F] ? ;
+
+UNESCAPED       = ? any Unicode char except `"`, `\`, U+0000–U+001F ? ;
+
+ANY_CHAR        = ? any character except newline ? ;
+
+(* ---------- Whitespace (implicit) --------------------------------------- *)
+
+(* Whitespace (spaces and tabs) between tokens is ignored unless it is a
+   NEWLINE acting as a TERMINATOR/separator. Newlines are significant only
+   as terminators for statements and separators within arrays/objects. *)
